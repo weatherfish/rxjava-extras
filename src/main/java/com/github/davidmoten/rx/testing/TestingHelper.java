@@ -698,6 +698,34 @@ public final class TestingHelper {
         public AssertionException(String message) {
             super(message);
         }
-
     }
+
+    /**
+     * Returns a {@link Func1} For use with {@code Observable.to()}. Enables
+     * method chaining from observable to assertions.
+     * 
+     * @param <T>
+     *            type of item in observable stream
+     * @return Func1
+     */
+    public static <T> Func1<Observable<T>, TestSubscriber2<T>> test() {
+        return TestSubscriber2.test();
+    }
+
+    /**
+     * Returns a {@link Func1} For use with {@code Observable.to()}. Enables
+     * method chaining from observable to assertions.
+     * 
+     * @param initialRequest
+     *            amount to be requested in the {@code onStart} method of the
+     *            subscriber.
+     * @param <T>
+     *            type of item in observable stream
+     * @return Func1
+     */
+    public static <T> Func1<Observable<T>, TestSubscriber2<T>> testWithRequest(
+            long initialRequest) {
+        return TestSubscriber2.testWithRequest(initialRequest);
+    }
+
 }
