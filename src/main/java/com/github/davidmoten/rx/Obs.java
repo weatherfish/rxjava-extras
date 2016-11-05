@@ -3,12 +3,16 @@ package com.github.davidmoten.rx;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.github.davidmoten.rx.internal.operators.ObservableReverse;
 import com.github.davidmoten.rx.internal.operators.OnSubscribeFromQueue;
+import com.github.davidmoten.rx.internal.operators.OnSubscribeMatch;
+import com.github.davidmoten.rx.internal.operators.OnSubscribeRepeating;
 import com.github.davidmoten.rx.internal.operators.OrderedMerge;
 import com.github.davidmoten.rx.internal.operators.Permutations;
 import com.github.davidmoten.rx.internal.operators.Permutations.Swap;
@@ -16,11 +20,8 @@ import com.github.davidmoten.rx.observables.CachedObservable;
 import com.github.davidmoten.util.Optional;
 
 import rx.Observable;
-import rx.Observable.OnSubscribe;
-import rx.Producer;
 import rx.Scheduler;
 import rx.Scheduler.Worker;
-import rx.Subscriber;
 import rx.functions.Action0;
 import rx.functions.Func0;
 import rx.functions.Func1;
@@ -170,25 +171,15 @@ public final class Obs {
      * Returns an Observable that epeats emitting {@code t} without completing.
      * Supports backpressure.
      * 
-     * @param t value to repeat
-     * @param <T> type of t
-
+     * @param t
+     *            value to repeat
+     * @param <T>
+     *            type of t
+     * 
      * @return an observable that repeats t forever (or until unsubscribed)
      */
     public static <T> Observable<T> repeating(final T t) {
-        return Observable.create(new OnSubscribe<T>() {
-            @Override
-            public void call(final Subscriber<? super T> subscriber) {
-                subscriber.setProducer(new Producer() {
-                    @Override
-                    public void request(long n) {
-                        while (n-- > 0 && !subscriber.isUnsubscribed()) {
-                            subscriber.onNext(t);
-                        }
-                    }
-                });
-            }
-        });
+        return Observable.create(new OnSubscribeRepeating<T>(t));
     }
 
     public static <T extends Comparable<? super T>> Observable<T> create(
@@ -246,25 +237,44 @@ public final class Obs {
             }
         });
     }
-    
-    
-    public static Observable<Long> intervalLong(final long duration, final TimeUnit unit, final Scheduler scheduler) {
+
+    public static Observable<Long> intervalLong(final long duration, final TimeUnit unit,
+            final Scheduler scheduler) {
         return Observable.defer(new Func0<Observable<Long>>() {
             final long[] count = new long[1];
+
             @Override
             public Observable<Long> call() {
-                return Observable.interval(duration, unit, scheduler)
-                        .map(new Func1<Long, Long>() {
+                return Observable.interval(duration, unit, scheduler).map(new Func1<Long, Long>() {
 
-                            @Override
-                            public Long call(Long t) {
-                                return count[0]++;
-                            }});
-            }});
+                    @Override
+                    public Long call(Long t) {
+                        return count[0]++;
+                    }
+                });
+            }
+        });
     }
-    
+
     public static Observable<Long> intervalLong(long duration, TimeUnit unit) {
         return intervalLong(duration, unit, Schedulers.computation());
+    }
+
+    public static <A, B, K, C> Observable<C> match(final Observable<A> a, final Observable<B> b,
+            final Func1<? super A, ? extends K> aKey, final Func1<? super B, ? extends K> bKey,
+            final Func2<? super A, ? super B, C> combiner) {
+        return match(a, b, aKey, bKey, combiner, 128);
+    }
+
+    public static <A, B, K, C> Observable<C> match(final Observable<A> a, final Observable<B> b,
+            final Func1<? super A, ? extends K> aKey, final Func1<? super B, ? extends K> bKey,
+            final Func2<? super A, ? super B, C> combiner, long requestSize) {
+        return Observable
+                .create(new OnSubscribeMatch<A, B, K, C>(a, b, aKey, bKey, combiner, requestSize));
+    }
+
+    public static <T> Observable<T> reverse(Observable<T> source) {
+        return ObservableReverse.reverse(source);
     }
     
 }

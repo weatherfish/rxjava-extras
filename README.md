@@ -3,10 +3,7 @@ rxjava-extras
 
 <a href="https://travis-ci.org/davidmoten/rxjava-extras"><img src="https://travis-ci.org/davidmoten/rxjava-extras.svg"/></a><br/>
 [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.davidmoten/rxjava-extras/badge.svg?style=flat)](https://maven-badges.herokuapp.com/maven-central/com.github.davidmoten/rxjava-extras)<br/>
-<!--[![Dependency Status](https://gemnasium.com/com.github.davidmoten/rxjava-extras.svg)](https://gemnasium.com/com.github.davidmoten/rxjava-extras)-->
 [![codecov](https://codecov.io/gh/davidmoten/rxjava-extras/branch/master/graph/badge.svg)](https://codecov.io/gh/davidmoten/rxjava-extras)
-
-
 
 Utilities for use with rxjava:
 
@@ -17,6 +14,7 @@ Utilities for use with rxjava:
 * [`RetryWhen`](#retrywhen) builder for use with `.retryWhen(Func1)` operator
 * [`Transformers.ignoreElementsThen`](#transformersignoreelementsthen)
 * [`Transformers.mapWithIndex`](#transformersmapwithindex)
+* [`Transformers.matchWith`](#transformersmatchwith)
 * [`Transformers.orderedMergeWith`](#transformersorderedmergewith)
 * [`Transformers.stateMachine`](#transformersstatemachine)
 * [`Transformers.collectWhile`](#transformerscollectwhile)
@@ -58,7 +56,7 @@ Add this to your pom.xml:
 <dependency>
   <groupId>com.github.davidmoten</groupId>
   <artifactId>rxjava-extras</artifactId>
-  <version>0.7.9.13</version>
+  <version>VERSION_HERE</version>
 </dependency>
 ```
 
@@ -69,7 +67,7 @@ repositories {
 }
 
 dependencies {
-    compile 'com.github.davidmoten:rxjava-extras:0.7.9.13'
+    compile 'com.github.davidmoten:rxjava-extras:VERSION_HERE'
 }
 ```
 
@@ -107,6 +105,37 @@ Maps each item to an item wrapped with a zero-based index:
 <img src="src/docs/mapWithIndex.png?raw=true" />
 
 [javadoc](http://davidmoten.github.io/rxjava-extras/apidocs/com/github/davidmoten/rx/Transformers.html#mapWithIndex--)
+
+Transformers.matchWith
+-------------------------
+Finds out-of-order matches in two streams.
+
+<img src="src/docs/match.png?raw=true" />
+
+[javadoc](http://davidmoten.github.io/rxjava-extras/apidocs/com/github/davidmoten/rx/Transformers.html#matchWith--)
+
+You can use `Tranformers.matchWith` or `Obs.match`:
+
+```java
+Observable<Integer> a = Observable.just(1, 2, 4, 3);
+Observable<Integer> b = Observable.just(1, 2, 3, 5, 6, 4);
+Obs.match(a, b,
+     x -> x, // key to match on for a
+     x -> x, // key to match on for b
+     (x, y) -> x // combiner
+    )
+   .forEach(System.out::println);
+```
+gives
+```
+1
+2
+3
+4
+```
+Don't rely on the output order!
+
+Under the covers elements are requested from `a` and `b` in alternating batches of 128 by default. The batch size is configurable in another overload.
 
 Transformers.orderedMergeWith
 ------------------------------

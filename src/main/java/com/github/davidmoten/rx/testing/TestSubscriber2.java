@@ -1,18 +1,23 @@
 package com.github.davidmoten.rx.testing;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+
+import org.junit.Assert;
 
 import rx.Observable;
 import rx.Producer;
 import rx.Subscriber;
+import rx.functions.Action0;
 import rx.functions.Func1;
 import rx.observers.TestSubscriber;
 
 public class TestSubscriber2<T> extends Subscriber<T> {
 
     private final TestSubscriber<T> ts;
-    
+
     private TestSubscriber2(TestSubscriber<T> ts) {
         this.ts = ts;
     }
@@ -27,9 +32,8 @@ public class TestSubscriber2<T> extends Subscriber<T> {
     static <T> Func1<Observable<T>, TestSubscriber2<T>> test() {
         return testWithRequest(Long.MAX_VALUE);
     }
-    
-    static <T> Func1<Observable<T>, TestSubscriber2<T>> testWithRequest(
-            final long initialRequest) {
+
+    static <T> Func1<Observable<T>, TestSubscriber2<T>> testWithRequest(final long initialRequest) {
         return new Func1<Observable<T>, TestSubscriber2<T>>() {
 
             @Override
@@ -41,7 +45,7 @@ public class TestSubscriber2<T> extends Subscriber<T> {
 
         };
     }
-    
+
     public void onStart() {
         ts.onStart();
     }
@@ -121,8 +125,7 @@ public class TestSubscriber2<T> extends Subscriber<T> {
         return this;
     }
 
-    public TestSubscriber2<T> awaitTerminalEventAndUnsubscribeOnTimeout(long timeout,
-            TimeUnit unit) {
+    public TestSubscriber2<T> awaitTerminalEventAndUnsubscribeOnTimeout(long timeout, TimeUnit unit) {
         ts.awaitTerminalEventAndUnsubscribeOnTimeout(timeout, unit);
         return this;
     }
@@ -176,9 +179,18 @@ public class TestSubscriber2<T> extends Subscriber<T> {
         return this;
     }
 
-    public final TestSubscriber2<T> assertValuesAndClear(T expectedFirstValue,
-            T... expectedRestValues) {
+    public final TestSubscriber2<T> assertValuesAndClear(T expectedFirstValue, T... expectedRestValues) {
         ts.assertValuesAndClear(expectedFirstValue, expectedRestValues);
+        return this;
+    }
+
+    public final TestSubscriber2<T> perform(Action0 action) {
+        action.call();
+        return this;
+    }
+
+    public TestSubscriber2<T> assertValuesSet(T... values) {
+        Assert.assertEquals(new HashSet<T>(Arrays.asList(values)), new HashSet<T>(ts.getOnNextEvents()));
         return this;
     }
 

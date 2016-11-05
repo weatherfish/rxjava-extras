@@ -2,17 +2,18 @@ package com.github.davidmoten.rx.internal.operators;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.BindException;
+import java.net.ConnectException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.charset.Charset;
-
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -30,6 +31,7 @@ import org.junit.Test;
 import com.github.davidmoten.junit.Asserts;
 import com.github.davidmoten.rx.Actions;
 import com.github.davidmoten.rx.Bytes;
+import com.github.davidmoten.rx.Functions;
 import com.github.davidmoten.rx.IO;
 import com.github.davidmoten.rx.RetryWhen;
 
@@ -43,16 +45,16 @@ import rx.plugins.RxJavaHooks;
 import rx.schedulers.Schedulers;
 
 public final class ObservableServerSocketTest {
-    
+
     private static final Charset UTF_8 = Charset.forName("UTF-8");
 
-    private static final int PORT = 12345;
+    // private static final int PORT = 12345;
     private static final String TEXT = "hello there";
 
     private static final int POOL_SIZE = 10;
     private static final Scheduler scheduler = Schedulers
             .from(Executors.newFixedThreadPool(POOL_SIZE));
-    
+
     private static final Scheduler clientScheduler = Schedulers
             .from(Executors.newFixedThreadPool(POOL_SIZE));
 
@@ -91,13 +93,14 @@ public final class ObservableServerSocketTest {
         reset();
         TestSubscriber<Object> ts = TestSubscriber.create();
         ServerSocket socket = null;
+        int port = 12345;
         try {
-            socket = new ServerSocket(PORT);
-            IO.serverSocket(PORT).readTimeoutMs(10000).bufferSize(5).create().subscribe(ts);
+            socket = new ServerSocket(port);
+            IO.serverSocket(port).readTimeoutMs(10000).bufferSize(5).create().subscribe(ts);
             ts.assertNoValues();
             ts.assertNotCompleted();
             ts.assertTerminalEvent();
-            assertTrue(ts.getOnErrorEvents().get(0).getCause() instanceof BindException);
+            assertTrue(ts.getOnErrorEvents().get(0).getCause().getCause() instanceof BindException);
         } finally {
             socket.close();
         }
@@ -158,7 +161,11 @@ public final class ObservableServerSocketTest {
         final AtomicReference<byte[]> result = new AtomicReference<byte[]>();
         try {
             int bufferSize = 4;
-            IO.serverSocket(PORT).readTimeoutMs(10000).bufferSize(bufferSize).create() //
+            AtomicInteger port = new AtomicInteger();
+            IO.serverSocketAutoAllocatePort(Actions.setAtomic(port)) //
+                    .readTimeoutMs(10000) //
+                    .bufferSize(bufferSize) //
+                    .create() //
                     .flatMap(new Func1<Observable<byte[]>, Observable<byte[]>>() {
                         @Override
                         public Observable<byte[]> call(Observable<byte[]> g) {
@@ -167,12 +174,12 @@ public final class ObservableServerSocketTest {
                                     .compose(Bytes.collect()) //
                                     .doOnNext(Actions.setAtomic(result)) //
                                     .doOnNext(new Action1<byte[]>() {
-                                        @Override
-                                        public void call(byte[] bytes) {
-                                            System.out.println(Thread.currentThread().getName()
-                                                    + ": " + new String(bytes));
-                                        }
-                                    }) //
+                                @Override
+                                public void call(byte[] bytes) {
+                                    System.out.println(Thread.currentThread().getName() + ": "
+                                            + new String(bytes));
+                                }
+                            }) //
                                     .onErrorResumeNext(Observable.<byte[]> empty()) //
                                     .subscribeOn(scheduler);
                         }
@@ -180,7 +187,7 @@ public final class ObservableServerSocketTest {
                     .subscribeOn(scheduler) //
                     .subscribe(ts);
             Thread.sleep(300);
-            Socket socket = new Socket("localhost", PORT);
+            Socket socket = new Socket("localhost", port.get());
             OutputStream out = socket.getOutputStream();
             out.write("12345678901234567890".getBytes());
             out.close();
@@ -200,9 +207,11 @@ public final class ObservableServerSocketTest {
         RxJavaHooks.setOnError(Actions.printStackTrace1());
         TestSubscriber<Object> ts = TestSubscriber.create();
         final AtomicReference<byte[]> result = new AtomicReference<byte[]>();
+        AtomicInteger port = new AtomicInteger();
         try {
             int bufferSize = 4;
-            IO.serverSocket(PORT).readTimeoutMs(Integer.MAX_VALUE).bufferSize(bufferSize).create()
+            IO.serverSocketAutoAllocatePort(Actions.setAtomic(port)) //
+                    .readTimeoutMs(Integer.MAX_VALUE).bufferSize(bufferSize).create()
                     .flatMap(new Func1<Observable<byte[]>, Observable<String>>() {
                         @Override
                         public Observable<String> call(Observable<byte[]> g) {
@@ -211,18 +220,17 @@ public final class ObservableServerSocketTest {
                                     .compose(Bytes.collect()) //
                                     .doOnNext(Actions.setAtomic(result)) //
                                     .map(new Func1<byte[], String>() {
-                                        @Override
-                                        public String call(byte[] bytes) {
-                                            return new String(bytes, UTF_8);
-                                        }
-                                    }) //
+                                @Override
+                                public String call(byte[] bytes) {
+                                    return new String(bytes, UTF_8);
+                                }
+                            }) //
                                     .doOnNext(new Action1<String>() {
-                                        @Override
-                                        public void call(String s) {
-                                            System.out.println(
-                                                    Thread.currentThread().getName() + ": " + s);
-                                        }
-                                    }) //
+                                @Override
+                                public void call(String s) {
+                                    System.out.println(Thread.currentThread().getName() + ": " + s);
+                                }
+                            }) //
                                     .onErrorResumeNext(Observable.<String> empty()) //
                                     .subscribeOn(scheduler);
                         }
@@ -230,7 +238,7 @@ public final class ObservableServerSocketTest {
                     .subscribe(ts);
             Thread.sleep(300);
             @SuppressWarnings("resource")
-            Socket socket = new Socket("localhost", PORT);
+            Socket socket = new Socket("localhost", port.get());
             OutputStream out = socket.getOutputStream();
             out.write("hell".getBytes(UTF_8));
             out.flush();
@@ -258,10 +266,13 @@ public final class ObservableServerSocketTest {
             System.out.println("loop " + k);
             TestSubscriber<String> ts = TestSubscriber.create();
             final AtomicInteger connections = new AtomicInteger();
+            final AtomicInteger port = new AtomicInteger();
             try {
                 int bufferSize = 4;
-                IO.serverSocket(PORT).readTimeoutMs(10000).bufferSize(bufferSize).create()
-                        .flatMap(new Func1<Observable<byte[]>, Observable<byte[]>>() {
+                IO.serverSocketAutoAllocatePort(Actions.setAtomic(port)) //
+                        .readTimeoutMs(30000) //
+                        .bufferSize(bufferSize) //
+                        .create().flatMap(new Func1<Observable<byte[]>, Observable<byte[]>>() {
                             @Override
                             public Observable<byte[]> call(Observable<byte[]> g) {
                                 return g //
@@ -308,28 +319,24 @@ public final class ObservableServerSocketTest {
                                 messages.add(s.toString());
                                 Socket socket = null;
                                 try {
-                                    socket = new Socket("localhost", PORT);
+                                    socket = new Socket("localhost", port.get());
                                     // allow reuse so we don't run out of
                                     // sockets
                                     socket.setReuseAddress(true);
                                     socket.setSoTimeout(5000);
-                                    int count = openSockets.incrementAndGet();
-                                    
+                                    openSockets.incrementAndGet();
                                     OutputStream out = socket.getOutputStream();
                                     for (int i = 0; i < messageBlocks; i++) {
                                         out.write(id.getBytes(UTF_8));
                                     }
                                     out.close();
-                                    count = openSockets.decrementAndGet();
-                                    // System.out.println("open sockets=" +
-                                    // count + ",
-                                    // connections = "
-                                    // + connections.get());
+                                    openSockets.decrementAndGet();
                                 } catch (Exception e) {
                                     throw new RuntimeException(e);
                                 } finally {
                                     try {
-                                        socket.close();
+                                        if (socket != null)
+                                            socket.close();
                                     } catch (IOException e) {
                                         e.printStackTrace();
                                     }
@@ -337,7 +344,7 @@ public final class ObservableServerSocketTest {
                                 return Observable.<Object> just(1);
                             }
                         }) //
-                                .timeout(5, TimeUnit.SECONDS) //
+                                .timeout(30, TimeUnit.SECONDS) //
                                 .subscribeOn(clientScheduler);
                     }
                 }) //
@@ -351,6 +358,7 @@ public final class ObservableServerSocketTest {
                 assertFalse(errored.get());
             } finally {
                 ts.unsubscribe();
+                Thread.sleep(1000);
                 reset();
             }
         }
@@ -361,8 +369,12 @@ public final class ObservableServerSocketTest {
         reset();
         TestSubscriber<Object> ts = TestSubscriber.create();
         final AtomicReference<byte[]> result = new AtomicReference<byte[]>();
+        AtomicInteger port = new AtomicInteger();
         try {
-            IO.serverSocket(PORT).readTimeoutMs(10000).bufferSize(bufferSize).create()
+            IO.serverSocketAutoAllocatePort(Actions.setAtomic(port)) //
+                    .readTimeoutMs(10000) //
+                    .bufferSize(bufferSize) //
+                    .create() //
                     .flatMap(new Func1<Observable<byte[]>, Observable<byte[]>>() {
                         @Override
                         public Observable<byte[]> call(Observable<byte[]> g) {
@@ -370,19 +382,28 @@ public final class ObservableServerSocketTest {
                                     .compose(Bytes.collect()) //
                                     .doOnNext(Actions.setAtomic(result)) //
                                     .doOnNext(new Action1<byte[]>() {
-                                        @Override
-                                        public void call(byte[] bytes) {
-                                            System.out.println(Thread.currentThread().getName()
-                                                    + ": " + new String(bytes));
-                                        }
-                                    }) //
+                                @Override
+                                public void call(byte[] bytes) {
+                                    System.out.println(Thread.currentThread().getName() + ": "
+                                            + new String(bytes));
+                                }
+                            }) //
                                     .onErrorResumeNext(Observable.<byte[]> empty()) //
                                     .subscribeOn(scheduler);
                         }
                     }).subscribeOn(scheduler) //
                     .subscribe(ts);
-            Thread.sleep(1000);
-            Socket socket = new Socket("localhost", PORT);
+            Socket socket = null;
+            for (int i = 0; i < 15; i++) {
+                Thread.sleep(1000);
+                try {
+                    socket = new Socket("127.0.0.1", port.get());
+                    break;
+                } catch (ConnectException e) {
+                    System.out.println(e.getMessage());
+                }
+            }
+            assertNotNull("could not connect to port " + port.get(), socket);
             OutputStream out = socket.getOutputStream();
             out.write(text.getBytes());
             out.close();
@@ -395,10 +416,40 @@ public final class ObservableServerSocketTest {
         }
     }
 
+    @Test
+    public void testAcceptSocketRejectsAlways()
+            throws UnknownHostException, IOException, InterruptedException {
+        reset();
+        TestSubscriber<Object> ts = TestSubscriber.create();
+        try {
+            int bufferSize = 4;
+            AtomicInteger port = new AtomicInteger();
+            IO.serverSocketAutoAllocatePort(Actions.setAtomic(port)) //
+                    .readTimeoutMs(10000) //
+                    .acceptTimeoutMs(200) //
+                    .bufferSize(bufferSize) //
+                    .acceptSocketIf(Functions.alwaysFalse()) //
+                    .create() //
+                    .subscribeOn(scheduler) //
+                    .subscribe(ts);
+            Thread.sleep(300);
+            Socket socket = new Socket("localhost", port.get());
+            OutputStream out = socket.getOutputStream();
+            out.write("12345678901234567890".getBytes());
+            out.close();
+            socket.close();
+            Thread.sleep(1000);
+            ts.assertNoValues();
+        } finally {
+            // will close server socket
+            ts.unsubscribe();
+        }
+    }
+
     public static void main(String[] args) throws InterruptedException {
         reset();
         TestSubscriber<Object> ts = TestSubscriber.create();
-        IO.serverSocket(PORT).readTimeoutMs(10000).bufferSize(8).create()
+        IO.serverSocket(12345).readTimeoutMs(10000).bufferSize(8).create()
                 .flatMap(new Func1<Observable<byte[]>, Observable<byte[]>>() {
                     @Override
                     public Observable<byte[]> call(Observable<byte[]> g) {
@@ -406,12 +457,12 @@ public final class ObservableServerSocketTest {
                                 .compose(Bytes.collect()) //
                                 .doOnNext(new Action1<byte[]>() {
 
-                                    @Override
-                                    public void call(byte[] bytes) {
-                                        System.out.println(Thread.currentThread().getName() + ": "
-                                                + new String(bytes).trim());
-                                    }
-                                }) //
+                            @Override
+                            public void call(byte[] bytes) {
+                                System.out.println(Thread.currentThread().getName() + ": "
+                                        + new String(bytes).trim());
+                            }
+                        }) //
                                 .onErrorResumeNext(Observable.<byte[]> empty()) //
                                 .subscribeOn(scheduler);
                     }
@@ -422,4 +473,3 @@ public final class ObservableServerSocketTest {
 
     }
 }
-

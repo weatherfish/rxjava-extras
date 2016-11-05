@@ -154,5 +154,5 @@ public final class Checked {
             }
         };
     }
-    
+
 }

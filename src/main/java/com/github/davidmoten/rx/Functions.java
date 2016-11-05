@@ -1,6 +1,7 @@
 package com.github.davidmoten.rx;
 
 import java.util.Comparator;
+import java.util.concurrent.Callable;
 
 import rx.Observable;
 import rx.functions.Func0;
@@ -174,6 +175,44 @@ public final class Functions {
                 return t != null;
             }
         };
+    }
+
+    public static <T> Func0<T> toFunc0(final Callable<T> f) {
+        return new Func0<T>() {
+
+            @Override
+            public T call() {
+                try {
+                    return f.call();
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+    }
+
+    public static <T, R> Func1<T, R> throwing() {
+        return new Func1<T, R>() {
+
+            @Override
+            public R call(T t) {
+                throw new ThrowingException();
+            }
+        };
+    }
+
+    public static <T, R, S> Func2<T, R, S> throwing2() {
+        return new Func2<T, R, S>() {
+
+            @Override
+            public S call(T t, R r) {
+                throw new ThrowingException();
+            }
+        };
+    }
+
+    public static final class ThrowingException extends RuntimeException {
+        private static final long serialVersionUID = 930909878278758496L;
     }
 
 }

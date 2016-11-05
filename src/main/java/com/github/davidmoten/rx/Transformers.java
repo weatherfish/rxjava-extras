@@ -19,11 +19,11 @@ import com.github.davidmoten.rx.buffertofile.DataSerializer;
 import com.github.davidmoten.rx.buffertofile.DataSerializers;
 import com.github.davidmoten.rx.buffertofile.Options;
 import com.github.davidmoten.rx.internal.operators.OnSubscribeDoOnEmpty;
+import com.github.davidmoten.rx.internal.operators.OnSubscribeMapLast;
 import com.github.davidmoten.rx.internal.operators.OperatorBufferPredicateBoundary;
 import com.github.davidmoten.rx.internal.operators.OperatorBufferToFile;
 import com.github.davidmoten.rx.internal.operators.OperatorDoOnNth;
 import com.github.davidmoten.rx.internal.operators.OperatorFromTransformer;
-import com.github.davidmoten.rx.internal.operators.TransformerOnTerminateResume;
 import com.github.davidmoten.rx.internal.operators.OperatorSampleFirst;
 import com.github.davidmoten.rx.internal.operators.OperatorWindowMinMax;
 import com.github.davidmoten.rx.internal.operators.OperatorWindowMinMax.Metric;
@@ -32,6 +32,7 @@ import com.github.davidmoten.rx.internal.operators.TransformerDecode;
 import com.github.davidmoten.rx.internal.operators.TransformerDelayFinalUnsubscribe;
 import com.github.davidmoten.rx.internal.operators.TransformerLimitSubscribers;
 import com.github.davidmoten.rx.internal.operators.TransformerOnBackpressureBufferRequestLimiting;
+import com.github.davidmoten.rx.internal.operators.TransformerOnTerminateResume;
 import com.github.davidmoten.rx.internal.operators.TransformerStateMachine;
 import com.github.davidmoten.rx.internal.operators.TransformerStringSplit;
 import com.github.davidmoten.rx.util.BackpressureStrategy;
@@ -1239,56 +1240,108 @@ public final class Transformers {
     private static long delay(long startActual, long startTime, long emissionTimestamp,
             Func0<Double> playRate, long now) {
         long elapsedActual = now - startActual;
-        return Math.max(0, Math.round((emissionTimestamp - startTime) / playRate.call() - elapsedActual));
+        return Math.max(0,
+                Math.round((emissionTimestamp - startTime) / playRate.call() - elapsedActual));
     }
 
     /**
-     * <p>Modifies the source Observable so that it invokes an action when it calls {@code onCompleted} and no items were emitted.
+     * <p>
+     * Modifies the source Observable so that it invokes an action when it calls
+     * {@code onCompleted} and no items were emitted.
      * <dl>
-     *  <dt><b>Scheduler:</b></dt>
-     *  <dd>{@code doOnEmpty} does not operate by default on a particular {@link Scheduler}.</dd>
+     * <dt><b>Scheduler:</b></dt>
+     * <dd>{@code doOnEmpty} does not operate by default on a particular
+     * {@link Scheduler}.</dd>
      * </dl>
      *
      * @param onEmpty
-     *            the action to invoke when the source Observable calls {@code onCompleted}, contingent on no items were emitted
-     * @param <T> generic type of observable being transformed
+     *            the action to invoke when the source Observable calls
+     *            {@code onCompleted}, contingent on no items were emitted
+     * @param <T>
+     *            generic type of observable being transformed
      * @return the source Observable with the side-effecting behavior applied
      */
-    public static final <T> Transformer<T,T> doOnEmpty(final Action0 onEmpty) {
-        return new Transformer<T,T> () {
+    public static final <T> Transformer<T, T> doOnEmpty(final Action0 onEmpty) {
+        return new Transformer<T, T>() {
 
             @Override
             public Observable<T> call(Observable<T> o) {
                 return Observable.create(new OnSubscribeDoOnEmpty<T>(o, onEmpty));
-            }};
+            }
+        };
     }
-    
+
     public static final <T> Transformer<T, T> onTerminateResume(
             final Func1<Throwable, Observable<T>> onError, final Observable<T> onCompleted) {
         return new TransformerOnTerminateResume<T>(onError, onCompleted);
     }
 
-    public static final <T> Transformer<T,T> repeatLast() {
-        return new Transformer<T,T>() {
+    public static final <T> Transformer<T, T> repeatLast() {
+        return new Transformer<T, T>() {
 
             @Override
             public Observable<T> call(Observable<T> o) {
-                return o.materialize().buffer(2, 1).flatMap(new Func1<List<Notification<T>>, Observable<T>>() {
-                    @Override
-                    public Observable<T> call(List<Notification<T>> list) {
-                        Notification<T> a = list.get(0);
-                        if (list.size() ==2 && list.get(1).isOnCompleted()) {
-                            return Observable.just(a.getValue()).repeat();
-                        } else if (a.isOnError()) {
-                            return Observable.error(list.get(0).getThrowable());
-                        } else if (a.isOnCompleted()) {
-                            return Observable.empty();
-                        } else {
-                            return Observable.just(a.getValue());
-                        }
-                    }
-                });
-            }}; 
+                return o.materialize().buffer(2, 1)
+                        .flatMap(new Func1<List<Notification<T>>, Observable<T>>() {
+                            @Override
+                            public Observable<T> call(List<Notification<T>> list) {
+                                Notification<T> a = list.get(0);
+                                if (list.size() == 2 && list.get(1).isOnCompleted()) {
+                                    return Observable.just(a.getValue()).repeat();
+                                } else if (a.isOnError()) {
+                                    return Observable.error(list.get(0).getThrowable());
+                                } else if (a.isOnCompleted()) {
+                                    return Observable.empty();
+                                } else {
+                                    return Observable.just(a.getValue());
+                                }
+                            }
+                        });
+            }
+        };
     }
-   
+
+    public static <T> Transformer<T, T> mapLast(final Func1<? super T, ? extends T> function) {
+
+        return new Transformer<T, T>() {
+
+            @Override
+            public Observable<T> call(Observable<T> source) {
+                return Observable.create(new OnSubscribeMapLast<T>(source, function));
+            }
+        };
+    }
+
+    public static <A, B, K, C> Transformer<A, C> matchWith(final Observable<B> obs, final Func1<? super A, ? extends K> key1,
+            final Func1<? super B,? extends K> key2, final Func2<? super A, ? super B, C> combiner) {
+        return new Transformer<A, C>() {
+
+            @Override
+            public Observable<C> call(Observable<A> source) {
+                return Obs.match(source, obs, key1, key2, combiner);
+            }
+        };
+
+    }
+    
+    public static <A, B, K, C> Transformer<A, C> matchWith(final Observable<B> obs, final Func1<? super A, ? extends K> key1,
+            final Func1<? super B,? extends K> key2, final Func2<? super A, ? super B, C> combiner, final long requestSize) {
+        return new Transformer<A, C>() {
+
+            @Override
+            public Observable<C> call(Observable<A> source) {
+                return Obs.match(source, obs, key1, key2, combiner, requestSize);
+            }
+        };
+
+    }
+    
+    public static <T> Transformer<T,T> reverse() {
+        return new Transformer<T,T>() {
+
+            @Override
+            public Observable<T> call(Observable<T> source) {
+                return Obs.reverse(source);
+            }};
+    }
 }

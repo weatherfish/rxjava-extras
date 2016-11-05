@@ -8,7 +8,7 @@ import java.util.LinkedList;
 import com.github.davidmoten.util.Preconditions;
 
 import rx.functions.Func0;
-import rx.plugins.RxJavaPlugins;
+import rx.plugins.RxJavaHooks;
 
 /**
  * <p>
@@ -70,10 +70,10 @@ class RollingSPSCQueue<T> implements QueueWithResources<T> {
 					}
 					queues.clear();
 				} catch (RuntimeException e) {
-					RxJavaPlugins.getInstance().getErrorHandler().handleError(e);
+					RxJavaHooks.onError(e);
 					throw e;
 				} catch (Error e) {
-					RxJavaPlugins.getInstance().getErrorHandler().handleError(e);
+				    RxJavaHooks.onError(e);
 					throw e;
 				}
 			}

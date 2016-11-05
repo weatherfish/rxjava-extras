@@ -28,12 +28,14 @@ public final class ObservableServerSocket {
         // prevent instantiation
     }
 
-    public static Observable<Observable<byte[]>> create(final int port, final int timeoutMs,
-            final int bufferSize, Action0 preAcceptAction, int acceptTimeoutMs) {
+    public static Observable<Observable<byte[]>> create(
+            final Func0<? extends ServerSocket> serverSocketFactory, final int timeoutMs,
+            final int bufferSize, Action0 preAcceptAction, int acceptTimeoutMs,
+            Func1<? super Socket, Boolean> acceptSocket) {
         Func1<ServerSocket, Observable<Observable<byte[]>>> observableFactory = createObservableFactory(
-                timeoutMs, bufferSize, preAcceptAction);
+                timeoutMs, bufferSize, preAcceptAction, acceptSocket);
         return Observable.<Observable<byte[]>, ServerSocket> using( //
-                createServerSocketFactory(port, acceptTimeoutMs), //
+                createServerSocketFactory(serverSocketFactory, acceptTimeoutMs), //
                 observableFactory, //
                 new Action1<ServerSocket>() {
 
@@ -45,39 +47,42 @@ public final class ObservableServerSocket {
                             throw new RuntimeException(e);
                         }
                     }
-                    
-                },
-                true);
+
+                }, true);
     }
 
-    private static Func0<ServerSocket> createServerSocketFactory(final int port,
-            final int acceptTimeoutMs) {
+    private static Func0<ServerSocket> createServerSocketFactory(
+            final Func0<? extends ServerSocket> serverSocketFactory, final int acceptTimeoutMs) {
         return Checked.f0(new F0<ServerSocket>() {
             @Override
             public ServerSocket call() throws Exception {
-                return createServerSocket(port, acceptTimeoutMs);
+                return createServerSocket(serverSocketFactory, acceptTimeoutMs);
             }
         });
     }
 
-    private static ServerSocket createServerSocket(int port, long timeoutMs) throws IOException {
-        ServerSocket s = new ServerSocket(port);
+    private static ServerSocket createServerSocket(
+            Func0<? extends ServerSocket> serverSocketCreator, long timeoutMs) throws IOException {
+        ServerSocket s = serverSocketCreator.call();
         s.setSoTimeout((int) timeoutMs);
         return s;
     }
 
     private static Func1<ServerSocket, Observable<Observable<byte[]>>> createObservableFactory(
-            final int timeoutMs, final int bufferSize, final Action0 preAcceptAction) {
+            final int timeoutMs, final int bufferSize, final Action0 preAcceptAction,
+            final Func1<? super Socket, Boolean> acceptSocket) {
         return new Func1<ServerSocket, Observable<Observable<byte[]>>>() {
             @Override
             public Observable<Observable<byte[]>> call(ServerSocket serverSocket) {
-                return createServerSocketObservable(serverSocket, timeoutMs, bufferSize, preAcceptAction);
+                return createServerSocketObservable(serverSocket, timeoutMs, bufferSize,
+                        preAcceptAction, acceptSocket);
             }
         };
     }
 
     private static Observable<Observable<byte[]>> createServerSocketObservable(
-            ServerSocket serverSocket, final long timeoutMs, final int bufferSize, final Action0 preAcceptAction) {
+            ServerSocket serverSocket, final long timeoutMs, final int bufferSize,
+            final Action0 preAcceptAction, final Func1<? super Socket, Boolean> acceptSocket) {
         return Observable.create( //
                 SyncOnSubscribe.<ServerSocket, Observable<byte[]>> createSingleState( //
                         Functions.constant0(serverSocket), //
@@ -86,20 +91,26 @@ public final class ObservableServerSocket {
                             @Override
                             public void call(ServerSocket ss,
                                     Observer<? super Observable<byte[]>> observer) {
-                                acceptConnection(timeoutMs, bufferSize, ss, observer, preAcceptAction);
+                                acceptConnection(timeoutMs, bufferSize, ss, observer,
+                                        preAcceptAction, acceptSocket);
                             }
                         }));
     }
 
     private static void acceptConnection(long timeoutMs, int bufferSize, ServerSocket ss,
-            Observer<? super Observable<byte[]>> observer, Action0 preAcceptAction) {
+            Observer<? super Observable<byte[]>> observer, Action0 preAcceptAction,
+            Func1<? super Socket, Boolean> acceptSocket) {
         Socket socket;
         while (true) {
             try {
                 preAcceptAction.call();
                 socket = ss.accept();
-                observer.onNext(createSocketObservable(socket, timeoutMs, bufferSize));
-                break;
+                if (!acceptSocket.call(socket)) {
+                    closeQuietly(socket);
+                } else {
+                    observer.onNext(createSocketObservable(socket, timeoutMs, bufferSize));
+                    break;
+                }
             } catch (SocketTimeoutException e) {
                 // timed out so will loop around again
             } catch (IOException e) {
@@ -107,6 +118,14 @@ public final class ObservableServerSocket {
                 observer.onError(e);
                 break;
             }
+        }
+    }
+
+    private static void closeQuietly(Socket socket) {
+        try {
+            socket.close();
+        } catch (IOException e) {
+            // ignore exception
         }
     }
 
